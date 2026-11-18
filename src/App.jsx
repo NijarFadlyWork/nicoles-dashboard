@@ -352,6 +352,273 @@ function TipeTransaksi({ data }) {
   );
 }
 
+// ---------- Custom Table ----------
+const DIMENSI = [
+  { id: "produk", label: "Product Item", kolom: "nama_produk" },
+  { id: "kategori", label: "Category", kolom: "kategori" },
+  { id: "toko", label: "Consignment Store", kolom: "toko" },
+];
+const UKURAN = [
+  { id: "stok", label: "Item Stock", kolom: "total_stok", format: angka },
+  { id: "terjual", label: "Item Sold", kolom: "total_terjual", format: angka },
+  { id: "revenue", label: "Total Revenue", kolom: "total_revenue", format: rupiah },
+  { id: "demand", label: "Demand", kolom: "total_demand", format: angka },
+];
+const FORM_AWAL = {
+  dims: ["produk"],
+  ukuran: ["terjual", "revenue"],
+  urut: "revenue",
+  tampil: "tabel",
+  mulai: "",
+  akhir: "",
+  kategori: "",
+  item: "",
+  batas: "10",
+};
+const MAKS_BARIS = 300;
+
+function Pilihan({ tipe, nama, nilai, label, cek, onChange }) {
+  return (
+    <label className="pilihan">
+      <input type={tipe} name={nama} value={nilai} checked={cek} onChange={onChange} />
+      {label}
+    </label>
+  );
+}
+
+function CustomTable() {
+  const [form, setForm] = useState(FORM_AWAL);
+  const [terapan, setTerapan] = useState(FORM_AWAL);
+  const [pesan, setPesan] = useState(null);
+  const [hasil, setHasil] = useState({ data: [], loading: true, error: null });
+
+  useEffect(() => {
+    let batal = false;
+    setHasil((h) => ({ ...h, loading: true }));
+    supabase
+      .rpc("custom_table", {
+        p_dims: terapan.dims,
+        p_urut: terapan.urut,
+        p_batas: terapan.batas === "semua" ? null : Number(terapan.batas),
+        p_mulai: terapan.mulai || null,
+        p_akhir: terapan.akhir || null,
+        p_kategori: terapan.kategori.trim() || null,
+        p_item: terapan.item.trim() || null,
+      })
+      .then(({ data, error }) => {
+        if (batal) return;
+        setHasil({ data: data ?? [], loading: false, error: error ? error.message : null });
+      });
+    return () => {
+      batal = true;
+    };
+  }, [terapan]);
+
+  const ubah = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const toggle = (k, id) =>
+    setForm((f) => ({
+      ...f,
+      [k]: f[k].includes(id) ? f[k].filter((x) => x !== id) : [...f[k], id],
+    }));
+
+  const terapkan = () => {
+    if (form.dims.length === 0) {
+      setPesan("Pilih minimal satu dari Product Item, Category, atau Consignment Store.");
+      return;
+    }
+    if (form.mulai && form.akhir && form.mulai > form.akhir) {
+      setPesan("Start Date tidak boleh lebih baru dari End Date.");
+      return;
+    }
+    setPesan(null);
+    setTerapan(form);
+  };
+  const reset = () => {
+    setPesan(null);
+    setForm(FORM_AWAL);
+    setTerapan(FORM_AWAL);
+  };
+
+  const dimTampil = DIMENSI.filter((d) => terapan.dims.includes(d.id));
+  const ukTampil = UKURAN.filter((u) => terapan.ukuran.includes(u.id) || u.id === terapan.urut);
+  const metrikUrut = UKURAN.find((u) => u.id === terapan.urut);
+  const nilaiDim = (r, d) => r[d.kolom] ?? (d.id === "kategori" ? "Tanpa kategori" : "-");
+  const label = (r) => dimTampil.map((d) => nilaiDim(r, d)).join(" · ");
+  const adaStok = hasil.data.some((r) => Number(r.total_stok) > 0);
+  const tampilStok = ukTampil.some((u) => u.id === "stok");
+
+  return (
+    <div>
+      <div className="ct-form">
+        <fieldset className="ct-grup">
+          <legend>Table Value</legend>
+          {DIMENSI.map((d) => (
+            <Pilihan
+              key={d.id}
+              tipe="checkbox"
+              nama="dims"
+              nilai={d.id}
+              label={d.label}
+              cek={form.dims.includes(d.id)}
+              onChange={() => toggle("dims", d.id)}
+            />
+          ))}
+          {UKURAN.filter((u) => u.id !== "demand").map((u) => (
+            <Pilihan
+              key={u.id}
+              tipe="checkbox"
+              nama="ukuran"
+              nilai={u.id}
+              label={u.label}
+              cek={form.ukuran.includes(u.id)}
+              onChange={() => toggle("ukuran", u.id)}
+            />
+          ))}
+        </fieldset>
+
+        <fieldset className="ct-grup">
+          <legend>Compare by</legend>
+          {UKURAN.map((u) => (
+            <Pilihan
+              key={u.id}
+              tipe="radio"
+              nama="urut"
+              nilai={u.id}
+              label={u.label}
+              cek={form.urut === u.id}
+              onChange={() => ubah("urut", u.id)}
+            />
+          ))}
+        </fieldset>
+
+        <fieldset className="ct-grup">
+          <legend>Data Visualization</legend>
+          <Pilihan tipe="radio" nama="tampil" nilai="tabel" label="Table"
+            cek={form.tampil === "tabel"} onChange={() => ubah("tampil", "tabel")} />
+          <Pilihan tipe="radio" nama="tampil" nilai="grafik" label="Graph"
+            cek={form.tampil === "grafik"} onChange={() => ubah("tampil", "grafik")} />
+          <legend className="ct-sub">Date Range</legend>
+          <label className="ct-isian">
+            Start Date
+            <input type="date" value={form.mulai} onChange={(e) => ubah("mulai", e.target.value)} />
+          </label>
+          <label className="ct-isian">
+            End Date
+            <input type="date" value={form.akhir} onChange={(e) => ubah("akhir", e.target.value)} />
+          </label>
+        </fieldset>
+
+        <fieldset className="ct-grup">
+          <legend>Filter</legend>
+          <label className="ct-isian">
+            Specify Category
+            <input type="text" value={form.kategori} placeholder="mis. sabun"
+              onChange={(e) => ubah("kategori", e.target.value)} />
+          </label>
+          <label className="ct-isian">
+            Specify Item
+            <input type="text" value={form.item} placeholder="mis. lavender"
+              onChange={(e) => ubah("item", e.target.value)} />
+          </label>
+        </fieldset>
+
+        <fieldset className="ct-grup">
+          <legend>Sort by</legend>
+          {[
+            ["semua", "All Item"],
+            ["20", "Top 20"],
+            ["10", "Top 10"],
+          ].map(([v, l]) => (
+            <Pilihan key={v} tipe="radio" nama="batas" nilai={v} label={l}
+              cek={form.batas === v} onChange={() => ubah("batas", v)} />
+          ))}
+        </fieldset>
+      </div>
+
+      <div className="ct-aksi">
+        <button className="tombol tombol-isi" onClick={terapkan}>Terapkan</button>
+        <button className="tombol" onClick={reset}>Reset</button>
+        {pesan && <span className="galat">{pesan}</span>}
+      </div>
+
+      {hasil.loading && <p className="info">Memuat data…</p>}
+      {hasil.error && <p className="galat">Gagal memuat: {hasil.error}</p>}
+      {!hasil.loading && !hasil.error && hasil.data.length === 0 && (
+        <p className="info">Tidak ada data yang cocok dengan pilihan ini.</p>
+      )}
+
+      {!hasil.loading && !hasil.error && hasil.data.length > 0 && terapan.tampil === "tabel" && (
+        <div className="gulir ct-tabel">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                {dimTampil.map((d) => (
+                  <th key={d.id}>{d.label}</th>
+                ))}
+                {ukTampil.map((u) => (
+                  <th key={u.id} className={"kanan" + (u.id === terapan.urut ? " sorot" : "")}>
+                    {u.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {hasil.data.slice(0, MAKS_BARIS).map((r, i) => (
+                <tr key={i}>
+                  <td>{i + 1}</td>
+                  {dimTampil.map((d) => (
+                    <td key={d.id}>{nilaiDim(r, d)}</td>
+                  ))}
+                  {ukTampil.map((u) => (
+                    <td key={u.id} className={"kanan" + (u.id === terapan.urut ? " sorot" : "")}>
+                      {u.format(r[u.kolom] ?? 0)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {!hasil.loading && !hasil.error && hasil.data.length > 0 && terapan.tampil === "grafik" && (
+        <ResponsiveContainer width="100%" height={Math.max(260, Math.min(hasil.data.length, 20) * 36)}>
+          <BarChart
+            data={hasil.data.slice(0, 20).map((r) => ({
+              nama: label(r),
+              nilai: Number(r[metrikUrut.kolom] ?? 0),
+            }))}
+            layout="vertical"
+            margin={{ top: 8, right: 16, left: 8, bottom: 0 }}
+          >
+            <CartesianGrid horizontal={false} stroke="#e4ddd0" />
+            <XAxis type="number" tickFormatter={metrikUrut.id === "revenue" ? jt : angka} />
+            <YAxis type="category" dataKey="nama" width={220} interval={0} />
+            <Tooltip formatter={(v) => metrikUrut.format(v)} />
+            <Bar dataKey="nilai" name={metrikUrut.label} fill="#2f5d50" radius={[0, 3, 3, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+
+      {!hasil.loading && hasil.data.length > MAKS_BARIS && terapan.tampil === "tabel" && (
+        <p className="info">Menampilkan {MAKS_BARIS} baris pertama dari {hasil.data.length}.</p>
+      )}
+      {terapan.tampil === "grafik" && hasil.data.length > 20 && (
+        <p className="info">Grafik menampilkan 20 teratas. Pakai Table untuk melihat semuanya.</p>
+      )}
+      {!hasil.loading && !hasil.error && tampilStok && !adaStok && (
+        <p className="info">Data stok belum ada di database, jadi Item Stock bernilai 0.</p>
+      )}
+      <p className="catatan">
+        Demand = rata-rata Item Sold per bulan (dibagi lama periode laporan). Date Range pada
+        penjualan memakai periode laporan yang beririsan; pada stok memakai opname terbaru di
+        rentang itu.
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
   const [terbuka, setTerbuka] = useState(null);
   const tipe = useView("v_penjualan_per_tipe", (q) => q.order("bulan"));
@@ -465,6 +732,11 @@ export default function App() {
             </BarChart>
           </ResponsiveContainer>
         </Bagian>
+
+        <section className="bagian">
+          <h2>Custom Table</h2>
+          <CustomTable />
+        </section>
       </main>
     </>
   );
@@ -514,5 +786,23 @@ const css = `
   .bar-wadah span { position: relative; padding-left: 6px; }
   table.detail th, table.detail td { padding: 7px 8px; }
   table.detail tr:last-child td { border-bottom: none; }
+  .ct-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+             gap: 16px; margin-bottom: 16px; }
+  .ct-grup { border: none; margin: 0; padding: 0; min-width: 0; }
+  .ct-grup legend { font-size: 0.8rem; color: #6b766f; padding: 0; margin-bottom: 6px; }
+  .ct-grup legend.ct-sub { margin-top: 14px; }
+  .pilihan { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }
+  .pilihan input { accent-color: #2f5d50; }
+  .ct-isian { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem;
+              margin-bottom: 8px; color: #4a5750; }
+  .ct-isian input { font: inherit; padding: 6px 8px; border: 1px solid #d8cfbd;
+                    border-radius: 6px; background: #fff; color: #1f2a26; }
+  .ct-aksi { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tombol-isi { background: #2f5d50; color: #fffdf8; }
+  .tombol-isi:hover { background: #244a40; }
+  .ct-tabel { max-height: 520px; overflow-y: auto; }
+  .ct-tabel thead th { position: sticky; top: 0; background: #fffdf8; }
+  th.sorot, td.sorot { background: #f1ece0; font-weight: 600; }
+  .catatan { color: #6b766f; font-size: 0.85rem; margin: 12px 0 0; }
   @media (max-width: 600px) { h1 { font-size: 1.5rem; } .bagian { padding: 14px; } }
 `;
